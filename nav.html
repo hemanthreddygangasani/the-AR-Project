@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Mapbox AR Navigation</title>
+
+<link href="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.css" rel="stylesheet">
+
+<style>
+    /* --- UI RESET --- */
+    body { margin: 0; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #000; }
+
+    /* CAMERA FEED */
+    #camera-feed {
+        position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+        object-fit: cover; z-index: -1;
+    }
+
+    /* UI LAYER */
+    #ui-layer {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        display: flex; flex-direction: column; pointer-events: none;
+    }
+
+    /* DISTANCE BADGE */
+    .info-badge {
+        margin-top: 40px; align-self: center;
+        background: rgba(20, 20, 20, 0.85); color: white;
+        padding: 12px 25px; border-radius: 40px;
+        text-align: center; border: 1px solid rgba(255,255,255,0.2);
+        backdrop-filter: blur(5px);
+        box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+    }
+    #dist-text { font-size: 36px; font-weight: 800; }
+    #status-text { font-size: 12px; color: #ccc; text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
+
+    /* ARROW */
+    #arrow-container {
+        flex-grow: 1; display: flex;
+        align-items: center; justify-content: center;
+        perspective: 1000px;
+    }
+    #arrow-img {
+        width: 180px; height: 180px;
+        background-image: url("https://cdn-icons-png.flaticon.com/512/724/724927.png");
+        background-size: contain; background-repeat: no-repeat;
+        filter: drop-shadow(0 0 20px #00e5ff); /* Cyan Glow */
+        transition: transform 0.1s linear; /* Smooth rotation */
+    }
+
+    /* MINI MAP */
+    #mini-map-container {
+        position: absolute; bottom: 30px; right: 20px;
+        width: 140px; height: 140px;
+        border-radius: 20px; overflow: hidden;
+        border: 3px solid rgba(255,255,255,0.8);
+        box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+        pointer-events: auto; background: #222;
+    }
+    #map { width: 100%; height: 100%; }
+
+    /* BUTTONS */
+    #start-btn {
+        position: fixed; top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        padding: 18px 40px; font-size: 18px; font-weight: bold;
+        background: linear-gradient(135deg, #007cbf, #00bfa5);
+        color: white; border: none; border-radius: 50px;
+        cursor: pointer; z-index: 100;
+        box-shadow: 0 10px 40px rgba(0, 124, 191, 0.5);
+    }
+</style>
+</head>
+
+<body>
+
+    <video id="camera-feed" autoplay playsinline muted></video>
+
+    <div id="ui-layer">
+        <div class="info-badge">
+            <div id="dist-text">-- m</div>
+            <div id="status-text">Ready</div>
+        </div>
+        <div id="arrow-container">
+            <div id="arrow-img"></div>
+        </div>
+        <div id="mini-map-container">
+            <div id="map"></div>
+        </div>
+    </div>
+
+    <button id="start-btn" onclick="startSystem()">START NAVIGATION</button>
+
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.js"></script>
+
+<script>
+    /* ================= 1. CONFIGURATION ================= */
+    
+    // 🔴 PASTE YOUR MAPBOX TOKEN HERE
+    const MAPBOX_TOKEN = 'pk.eyJ1IjoiaGVtYW50aDg1MDMiLCJhIjoiY21rNzV5c2w2MHlqeTNncjI5bjkyeWJwaiJ9.NnunzAB_24Ntn83H5hRcyQ'; 
+
+    // TARGET DESTINATION (Latitude, Longitude)
+    const DESTINATION = { lat: 12.9692, lng: 79.1559 }; // Example: VIT Main Gate
+    
+    // SETTINGS
+    const NODE_SWITCH_DIST = 15; // Meters to reach before switching to next node
+    const SMOOTHING_FACTOR = 0.1; // 0.05 (very smooth/slow) to 0.5 (fast/jittery)
+
+    /* ================= 2. STATE VARIABLES ================= */
+    let map;
+    let currentPos = null;
+    let routeCoords = [];   // Array of [Lng, Lat]
+    let nextNodeIndex = 0;
+    
+    let currentHeading = 0;
+    let smoothedHeading = 0;
+    let isFetchingRoute = false;
+
+    /* ================= 3. SYSTEM STARTUP ================= */
+    async function startSystem() {
+        // Validation
+        if(MAPBOX_TOKEN.includes('YOUR_MAPBOX')) {
+            alert("Error: You forgot to paste your Mapbox Token in the code!");
+            return;
+        }
+
+        document.getElementById("start-btn").style.display = "none";
+        document.getElementById("status-text").innerText = "Sensors Starting...";
+
+        // A. Camera Access
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: "environment" } 
+            });
+            document.getElementById("camera-feed").srcObject = stream;
+        } catch(e) {
+            alert("Camera Error: " + e.message);
+        }
+
+        // B. Initialize Map
+        initMapbox();
+
+        // C. Request Compass Permissions (Required for iOS 13+)
+        setupCompass();
+
+        // D. Start GPS Tracking
+        if(navigator.geolocation) {
+            navigator.geolocation.watchPosition(handleLocation, 
+                err => console.warn("GPS Error:", err), 
+                { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
+            );
+        } else {
+            alert("GPS not supported on this device");
+        }
+    }
+
+    function initMapbox() {
+        mapboxgl.accessToken = MAPBOX_TOKEN;
+        map = new mapboxgl.Map({
+            container: 'map',
+            style: 'mapbox://styles/mapbox/dark-v11', // Optimized Dark Mode
+            center: [79.1559, 12.9692], // Default center
+            zoom: 16,
+            attributionControl: false
+        });
+    }
+
+    /* ================= 4. NAVIGATION LOGIC ================= */
+    
+    function handleLocation(pos) {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        currentPos = { lat, lng };
+
+        // 1. Center Mini-Map
+        if(map) map.setCenter([lng, lat]);
+
+        // 2. Fetch Route (Only once)
+        if(routeCoords.length === 0 && !isFetchingRoute) {
+            getMapboxRoute(lat, lng);
+        } 
+        // 3. Update Guidance
+        else if(routeCoords.length > 0) {
+            updateGuidance(lat, lng);
+        }
+    }
+
+    async function getMapboxRoute(startLat, startLng) {
+        isFetchingRoute = true;
+        document.getElementById("status-text").innerText = "Calculating Path...";
+
+        // API Request: Walking profile
+        const url = `https://api.mapbox.com/directions/v5/mapbox/walking/${startLng},${startLat};${DESTINATION.lng},${DESTINATION.lat}?steps=true&geometries=geojson&access_token=${MAPBOX_TOKEN}`;
+
+        try {
+            const res = await fetch(url);
+            const data = await res.json();
+            
+            if(data.routes && data.routes.length > 0) {
+                routeCoords = data.routes[0].geometry.coordinates; // [ [lng,lat], [lng,lat] ... ]
+                nextNodeIndex = 0;
+                
+                drawRouteOnMap(routeCoords);
+                document.getElementById("status-text").innerText = "Follow Arrow";
+            } else {
+                document.getElementById("status-text").innerText = "Route Not Found";
+            }
+        } catch(e) {
+            console.error("Mapbox API Error:", e);
+        }
+    }
+
+    function drawRouteOnMap(coords) {
+        // Helper to add layer safely
+        const addLayer = () => {
+            if (map.getSource('route')) {
+                map.getSource('route').setData({
+                    type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords }
+                });
+            } else {
+                map.addSource('route', {
+                    type: 'geojson',
+                    data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } }
+                });
+                map.addLayer({
+                    id: 'route', type: 'line', source: 'route',
+                    layout: { 'line-join': 'round', 'line-cap': 'round' },
+                    paint: { 'line-color': '#00e5ff', 'line-width': 6, 'line-opacity': 0.8 }
+                });
+            }
+        };
+
+        // CRITICAL FIX: Ensure style is loaded before adding layer
+        if (map.loaded()) {
+            addLayer();
+        } else {
+            map.on('load', addLayer);
+        }
+    }
+
+    function updateGuidance(lat, lng) {
+        // Get target node coordinates (Mapbox uses [lng, lat])
+        const targetLng = routeCoords[nextNodeIndex][0];
+        const targetLat = routeCoords[nextNodeIndex][1];
+
+        // Distance to the specific node we are walking to
+        const distToNode = getDistance(lat, lng, targetLat, targetLng);
+
+        // If we are close (15m), switch to the next node
+        if(distToNode < NODE_SWITCH_DIST && nextNodeIndex < routeCoords.length - 1) {
+            nextNodeIndex++;
+        }
+
+        // Distance to Final Destination
+        const totalDist = getDistance(lat, lng, DESTINATION.lat, DESTINATION.lng);
+        document.getElementById("dist-text").innerText = Math.round(totalDist) + " m";
+
+        // Update Arrow
+        const nextLng = routeCoords[nextNodeIndex][0];
+        const nextLat = routeCoords[nextNodeIndex][1];
+        const bearing = getBearing(lat, lng, nextLat, nextLng);
+        updateArrow(bearing);
+    }
+
+    /* ================= 5. SENSORS (COMPASS) ================= */
+    
+    function setupCompass() {
+        // iOS 13+ Permissions
+        if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
+            DeviceOrientationEvent.requestPermission().then(response => {
+                if(response === "granted") window.addEventListener("deviceorientation", handleOrientation);
+            });
+        } else {
+            // Android / Standard
+            if ('ondeviceorientationabsolute' in window) {
+                window.addEventListener("deviceorientationabsolute", handleOrientation);
+            } else {
+                window.addEventListener("deviceorientation", handleOrientation);
+            }
+        }
+    }
+
+    function handleOrientation(e) {
+        let heading = 0;
+        
+        // iOS
+        if (e.webkitCompassHeading) {
+            heading = e.webkitCompassHeading;
+        } 
+        // Android
+        else if (e.alpha !== null) {
+            heading = 360 - e.alpha; 
+        }
+
+        // Smooth filter
+        let diff = heading - smoothedHeading;
+        while(diff < -180) diff += 360;
+        while(diff > 180) diff -= 360;
+        smoothedHeading += diff * SMOOTHING_FACTOR;
+        
+        currentHeading = smoothedHeading;
+
+        // Force visual update if we know where we are going
+        if(routeCoords.length > 0 && currentPos) {
+            const nextLng = routeCoords[nextNodeIndex][0];
+            const nextLat = routeCoords[nextNodeIndex][1];
+            const bearing = getBearing(currentPos.lat, currentPos.lng, nextLat, nextLng);
+            updateArrow(bearing);
+        }
+    }
+
+    function updateArrow(targetBearing) {
+        let rot = targetBearing - currentHeading;
+        // Normalize
+        while (rot < -180) rot += 360;
+        while (rot > 180) rot -= 360;
+        
+        document.getElementById("arrow-img").style.transform = `rotate(${rot}deg)`;
+    }
+
+    /* ================= 6. MATH UTILITIES ================= */
+    
+    function getDistance(lat1, lon1, lat2, lon2) {
+        const R = 6371e3; // Earth radius
+        const φ1 = lat1 * Math.PI/180;
+        const φ2 = lat2 * Math.PI/180;
+        const Δφ = (lat2-lat1) * Math.PI/180;
+        const Δλ = (lon2-lon1) * Math.PI/180;
+        const a = Math.sin(Δφ/2)**2 + Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)**2;
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    }
+
+    function getBearing(lat1, lon1, lat2, lon2) {
+        const φ1 = lat1 * Math.PI/180, φ2 = lat2 * Math.PI/180;
+        const Δλ = (lon2-lon1) * Math.PI/180;
+        const y = Math.sin(Δλ) * Math.cos(φ2);
+        const x = Math.cos(φ1)*Math.sin(φ2) - Math.sin(φ1)*Math.cos(φ2)*Math.cos(Δλ);
+        const θ = Math.atan2(y, x);
+        return (θ * 180 / Math.PI + 360) % 360;
+    }
+</script>
+</body>
+</html>
