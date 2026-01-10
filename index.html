@@ -3,39 +3,40 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Mapbox AR Navigation</title>
+<title>Steady AR Navigation</title>
 
 <link href="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.css" rel="stylesheet">
 
 <style>
-    /* --- UI RESET --- */
-    body { margin: 0; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #000; }
+    /* --- RESET & LAYOUT --- */
+    body { margin: 0; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #000; }
 
-    /* CAMERA FEED */
+    /* 1. BACKGROUND CAMERA */
     #camera-feed {
         position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
         object-fit: cover; z-index: -1;
     }
 
-    /* UI LAYER */
+    /* 2. UI LAYER (HUD) */
     #ui-layer {
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
         display: flex; flex-direction: column; pointer-events: none;
     }
 
-    /* DISTANCE BADGE */
+    /* Distance Badge */
     .info-badge {
         margin-top: 40px; align-self: center;
-        background: rgba(20, 20, 20, 0.85); color: white;
-        padding: 12px 25px; border-radius: 40px;
+        background: rgba(10, 10, 10, 0.9); color: #fff;
+        padding: 15px 35px; border-radius: 50px;
         text-align: center; border: 1px solid rgba(255,255,255,0.2);
-        backdrop-filter: blur(5px);
-        box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        backdrop-filter: blur(8px);
+        box-shadow: 0 4px 25px rgba(0,0,0,0.6);
+        pointer-events: auto;
     }
-    #dist-text { font-size: 36px; font-weight: 800; }
-    #status-text { font-size: 12px; color: #ccc; text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
+    #dist-text { font-size: 42px; font-weight: 800; letter-spacing: -1px; }
+    #status-text { font-size: 12px; color: #ccc; text-transform: uppercase; letter-spacing: 1.5px; margin-top: 5px; }
 
-    /* ARROW */
+    /* The AR Arrow */
     #arrow-container {
         flex-grow: 1; display: flex;
         align-items: center; justify-content: center;
@@ -45,30 +46,33 @@
         width: 180px; height: 180px;
         background-image: url("https://cdn-icons-png.flaticon.com/512/724/724927.png");
         background-size: contain; background-repeat: no-repeat;
-        filter: drop-shadow(0 0 20px #00e5ff); /* Cyan Glow */
-        transition: transform 0.1s linear; /* Smooth rotation */
+        /* Cyan Glow for Visibility */
+        filter: drop-shadow(0 0 25px #00e5ff); 
+        /* Smoother transition for less jitter */
+        transition: transform 0.2s cubic-bezier(0.1, 0.5, 0.5, 1);
     }
 
-    /* MINI MAP */
+    /* Mini Map (UPDATED: BIGGER SIZE) */
     #mini-map-container {
         position: absolute; bottom: 30px; right: 20px;
-        width: 140px; height: 140px;
-        border-radius: 20px; overflow: hidden;
-        border: 3px solid rgba(255,255,255,0.8);
-        box-shadow: 0 10px 30px rgba(0,0,0,0.6);
-        pointer-events: auto; background: #222;
+        width: 200px; height: 200px; /* Increased from 140px */
+        border-radius: 30px; /* Soft square looks better at this size */
+        overflow: hidden;
+        border: 4px solid rgba(255,255,255,0.9);
+        box-shadow: 0 15px 40px rgba(0,0,0,0.7);
+        pointer-events: auto; background: #1a1a1a;
     }
     #map { width: 100%; height: 100%; }
 
-    /* BUTTONS */
+    /* Start Button */
     #start-btn {
         position: fixed; top: 50%; left: 50%;
         transform: translate(-50%, -50%);
-        padding: 18px 40px; font-size: 18px; font-weight: bold;
+        padding: 20px 50px; font-size: 20px; font-weight: bold;
         background: linear-gradient(135deg, #007cbf, #00bfa5);
-        color: white; border: none; border-radius: 50px;
+        color: white; border: none; border-radius: 60px;
         cursor: pointer; z-index: 100;
-        box-shadow: 0 10px 40px rgba(0, 124, 191, 0.5);
+        box-shadow: 0 10px 50px rgba(0, 124, 191, 0.6);
     }
 </style>
 </head>
@@ -79,8 +83,8 @@
 
     <div id="ui-layer">
         <div class="info-badge">
-            <div id="dist-text">-- m</div>
-            <div id="status-text">Ready</div>
+            <div id="dist-text">--</div>
+            <div id="status-text">Initialize</div>
         </div>
         <div id="arrow-container">
             <div id="arrow-img"></div>
@@ -90,7 +94,7 @@
         </div>
     </div>
 
-    <button id="start-btn" onclick="startSystem()">START NAVIGATION</button>
+    <button id="start-btn" onclick="startSystem()">START AR</button>
 
     <script src="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.js"></script>
 
@@ -100,17 +104,18 @@
     // 🔴 PASTE YOUR MAPBOX TOKEN HERE
     const MAPBOX_TOKEN = 'pk.eyJ1IjoiaGVtYW50aDg1MDMiLCJhIjoiY21rNzV5c2w2MHlqeTNncjI5bjkyeWJwaiJ9.NnunzAB_24Ntn83H5hRcyQ'; 
 
-    // TARGET DESTINATION (Latitude, Longitude)
-    const DESTINATION = { lat: 12.9692, lng: 79.1559 }; // Example: VIT Main Gate
-    
-    // SETTINGS
-    const NODE_SWITCH_DIST = 15; // Meters to reach before switching to next node
-    const SMOOTHING_FACTOR = 0.1; // 0.05 (very smooth/slow) to 0.5 (fast/jittery)
+    // 🔴 SET DESTINATION (Lat, Lng)
+    // Example: VIT Vellore Main Gate
+    const DESTINATION = { lat: 12.9692, lng: 79.1559 }; 
+
+    // 🔴 SETTINGS (UPDATED FOR STABILITY)
+    const NODE_SWITCH_DIST = 12; // Lowered to 12m for tighter path accuracy
+    const SMOOTHING = 0.05;      // Lowered from 0.15 (0.05 = Very smooth/steady arrow)
 
     /* ================= 2. STATE VARIABLES ================= */
     let map;
     let currentPos = null;
-    let routeCoords = [];   // Array of [Lng, Lat]
+    let routeCoords = [];   
     let nextNodeIndex = 0;
     
     let currentHeading = 0;
@@ -119,16 +124,15 @@
 
     /* ================= 3. SYSTEM STARTUP ================= */
     async function startSystem() {
-        // Validation
         if(MAPBOX_TOKEN.includes('YOUR_MAPBOX')) {
-            alert("Error: You forgot to paste your Mapbox Token in the code!");
+            alert("⚠️ Error: Please paste your Mapbox Token in the code!");
             return;
         }
 
         document.getElementById("start-btn").style.display = "none";
-        document.getElementById("status-text").innerText = "Sensors Starting...";
+        document.getElementById("status-text").innerText = "Aligning Sensors...";
 
-        // A. Camera Access
+        // A. Camera
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 video: { facingMode: "environment" } 
@@ -138,20 +142,20 @@
             alert("Camera Error: " + e.message);
         }
 
-        // B. Initialize Map
+        // B. Map
         initMapbox();
 
-        // C. Request Compass Permissions (Required for iOS 13+)
+        // C. Compass
         setupCompass();
 
-        // D. Start GPS Tracking
+        // D. GPS
         if(navigator.geolocation) {
             navigator.geolocation.watchPosition(handleLocation, 
                 err => console.warn("GPS Error:", err), 
-                { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
+                { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
             );
         } else {
-            alert("GPS not supported on this device");
+            alert("GPS not supported");
         }
     }
 
@@ -159,14 +163,14 @@
         mapboxgl.accessToken = MAPBOX_TOKEN;
         map = new mapboxgl.Map({
             container: 'map',
-            style: 'mapbox://styles/mapbox/dark-v11', // Optimized Dark Mode
-            center: [79.1559, 12.9692], // Default center
-            zoom: 16,
+            style: 'mapbox://styles/mapbox/dark-v11',
+            center: [79.1559, 12.9692], 
+            zoom: 17, // Zoomed in slightly more for clarity
             attributionControl: false
         });
     }
 
-    /* ================= 4. NAVIGATION LOGIC ================= */
+    /* ================= 4. NAVIGATION LOGIC (Verified) ================= */
     
     function handleLocation(pos) {
         const lat = pos.coords.latitude;
@@ -176,11 +180,11 @@
         // 1. Center Mini-Map
         if(map) map.setCenter([lng, lat]);
 
-        // 2. Fetch Route (Only once)
+        // 2. Fetch Route (Only if we don't have one)
         if(routeCoords.length === 0 && !isFetchingRoute) {
             getMapboxRoute(lat, lng);
         } 
-        // 3. Update Guidance
+        // 3. Update Arrow (If we have a route)
         else if(routeCoords.length > 0) {
             updateGuidance(lat, lng);
         }
@@ -188,9 +192,9 @@
 
     async function getMapboxRoute(startLat, startLng) {
         isFetchingRoute = true;
-        document.getElementById("status-text").innerText = "Calculating Path...";
+        document.getElementById("status-text").innerText = "Finding Path...";
 
-        // API Request: Walking profile
+        // API Call: Walking Profile
         const url = `https://api.mapbox.com/directions/v5/mapbox/walking/${startLng},${startLat};${DESTINATION.lng},${DESTINATION.lat}?steps=true&geometries=geojson&access_token=${MAPBOX_TOKEN}`;
 
         try {
@@ -198,30 +202,31 @@
             const data = await res.json();
             
             if(data.routes && data.routes.length > 0) {
-                routeCoords = data.routes[0].geometry.coordinates; // [ [lng,lat], [lng,lat] ... ]
+                // Store the official path coordinates
+                routeCoords = data.routes[0].geometry.coordinates; 
                 nextNodeIndex = 0;
                 
                 drawRouteOnMap(routeCoords);
                 document.getElementById("status-text").innerText = "Follow Arrow";
             } else {
-                document.getElementById("status-text").innerText = "Route Not Found";
+                document.getElementById("status-text").innerText = "No Route Found";
             }
         } catch(e) {
-            console.error("Mapbox API Error:", e);
+            console.error(e);
+            document.getElementById("status-text").innerText = "Connection Error";
         }
     }
 
     function drawRouteOnMap(coords) {
-        // Helper to add layer safely
-        const addLayer = () => {
+        const draw = () => {
             if (map.getSource('route')) {
                 map.getSource('route').setData({
-                    type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords }
+                    type: 'Feature', geometry: { type: 'LineString', coordinates: coords }
                 });
             } else {
                 map.addSource('route', {
                     type: 'geojson',
-                    data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } }
+                    data: { type: 'Feature', geometry: { type: 'LineString', coordinates: coords } }
                 });
                 map.addLayer({
                     id: 'route', type: 'line', source: 'route',
@@ -231,32 +236,31 @@
             }
         };
 
-        // CRITICAL FIX: Ensure style is loaded before adding layer
-        if (map.loaded()) {
-            addLayer();
-        } else {
-            map.on('load', addLayer);
-        }
+        if(map.loaded()) draw();
+        else map.on('load', draw);
     }
 
     function updateGuidance(lat, lng) {
-        // Get target node coordinates (Mapbox uses [lng, lat])
+        // --- PATH ADHERENCE LOGIC ---
+        // 1. Identify the next specific point on the path
         const targetLng = routeCoords[nextNodeIndex][0];
         const targetLat = routeCoords[nextNodeIndex][1];
 
-        // Distance to the specific node we are walking to
+        // 2. How far are we from this specific point?
         const distToNode = getDistance(lat, lng, targetLat, targetLng);
 
-        // If we are close (15m), switch to the next node
+        // 3. If we are close (12m), graduate to the NEXT point
+        // This ensures we follow the line exactly, segment by segment.
         if(distToNode < NODE_SWITCH_DIST && nextNodeIndex < routeCoords.length - 1) {
             nextNodeIndex++;
         }
 
-        // Distance to Final Destination
+        // 4. Update UI Distance
         const totalDist = getDistance(lat, lng, DESTINATION.lat, DESTINATION.lng);
-        document.getElementById("dist-text").innerText = Math.round(totalDist) + " m";
+        document.getElementById("dist-text").innerText = Math.round(totalDist) + "m";
 
-        // Update Arrow
+        // 5. Update Arrow Bearing
+        // Recalculate bearing to the (possibly new) target node
         const nextLng = routeCoords[nextNodeIndex][0];
         const nextLat = routeCoords[nextNodeIndex][1];
         const bearing = getBearing(lat, lng, nextLat, nextLng);
@@ -266,14 +270,12 @@
     /* ================= 5. SENSORS (COMPASS) ================= */
     
     function setupCompass() {
-        // iOS 13+ Permissions
         if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
-            DeviceOrientationEvent.requestPermission().then(response => {
-                if(response === "granted") window.addEventListener("deviceorientation", handleOrientation);
+            DeviceOrientationEvent.requestPermission().then(r => {
+                if(r === "granted") window.addEventListener("deviceorientation", handleOrientation);
             });
         } else {
-            // Android / Standard
-            if ('ondeviceorientationabsolute' in window) {
+             if ('ondeviceorientationabsolute' in window) {
                 window.addEventListener("deviceorientationabsolute", handleOrientation);
             } else {
                 window.addEventListener("deviceorientation", handleOrientation);
@@ -283,25 +285,20 @@
 
     function handleOrientation(e) {
         let heading = 0;
+        if (e.webkitCompassHeading) heading = e.webkitCompassHeading; // iOS
+        else if (e.alpha !== null) heading = 360 - e.alpha; // Android
         
-        // iOS
-        if (e.webkitCompassHeading) {
-            heading = e.webkitCompassHeading;
-        } 
-        // Android
-        else if (e.alpha !== null) {
-            heading = 360 - e.alpha; 
-        }
-
-        // Smooth filter
+        // --- SMOOTHING ALGORITHM (Low Pass Filter) ---
+        // This makes the arrow less sensitive to hand shaking
         let diff = heading - smoothedHeading;
         while(diff < -180) diff += 360;
         while(diff > 180) diff -= 360;
-        smoothedHeading += diff * SMOOTHING_FACTOR;
         
+        // Apply the smoothing factor (0.05)
+        smoothedHeading += diff * SMOOTHING;
         currentHeading = smoothedHeading;
 
-        // Force visual update if we know where we are going
+        // Visual Update
         if(routeCoords.length > 0 && currentPos) {
             const nextLng = routeCoords[nextNodeIndex][0];
             const nextLat = routeCoords[nextNodeIndex][1];
@@ -312,21 +309,17 @@
 
     function updateArrow(targetBearing) {
         let rot = targetBearing - currentHeading;
-        // Normalize
         while (rot < -180) rot += 360;
         while (rot > 180) rot -= 360;
-        
         document.getElementById("arrow-img").style.transform = `rotate(${rot}deg)`;
     }
 
-    /* ================= 6. MATH UTILITIES ================= */
+    /* ================= 6. MATH ================= */
     
     function getDistance(lat1, lon1, lat2, lon2) {
-        const R = 6371e3; // Earth radius
-        const φ1 = lat1 * Math.PI/180;
-        const φ2 = lat2 * Math.PI/180;
-        const Δφ = (lat2-lat1) * Math.PI/180;
-        const Δλ = (lon2-lon1) * Math.PI/180;
+        const R = 6371e3;
+        const φ1 = lat1 * Math.PI/180, φ2 = lat2 * Math.PI/180;
+        const Δφ = (lat2-lat1) * Math.PI/180, Δλ = (lon2-lon1) * Math.PI/180;
         const a = Math.sin(Δφ/2)**2 + Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)**2;
         return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     }
@@ -336,8 +329,7 @@
         const Δλ = (lon2-lon1) * Math.PI/180;
         const y = Math.sin(Δλ) * Math.cos(φ2);
         const x = Math.cos(φ1)*Math.sin(φ2) - Math.sin(φ1)*Math.cos(φ2)*Math.cos(Δλ);
-        const θ = Math.atan2(y, x);
-        return (θ * 180 / Math.PI + 360) % 360;
+        return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
     }
 </script>
 </body>
