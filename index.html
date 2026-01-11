@@ -3,83 +3,69 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>VIT SJT Navigation (Android)</title>
+<title>GPS-Only Navigation</title>
 
 <link href="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.css" rel="stylesheet">
 
 <style>
     /* --- RESET & LAYOUT --- */
-    body { margin: 0; overflow: hidden; background: black; font-family: 'Segoe UI', sans-serif; }
+    body { margin: 0; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #000; }
 
-    /* Camera Feed */
     #camera-feed {
-        position: fixed; top: 0; left: 0;
-        width: 100vw; height: 100vh;
+        position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
         object-fit: cover; z-index: -1;
     }
 
-    /* UI Layer */
     #ui-layer {
-        position: fixed; top: 0; left: 0;
-        width: 100%; height: 100%;
-        display: flex; flex-direction: column;
-        pointer-events: none;
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        display: flex; flex-direction: column; pointer-events: none;
     }
 
-    /* Top Debug Panel */
     #debug-panel {
         position: absolute; top: 10px; left: 10px;
-        background: rgba(0, 0, 0, 0.7);
-        color: #00ff00; padding: 8px;
-        font-size: 12px; font-family: monospace;
-        border: 1px solid #00ff00;
-        border-radius: 4px;
+        background: rgba(0, 0, 0, 0.7); color: lime;
+        padding: 8px; border-radius: 5px; font-size: 11px;
+        font-family: monospace; z-index: 500;
+        border: 1px solid lime;
     }
 
-    /* Center Distance Badge */
     .info-badge {
-        margin-top: 80px; align-self: center;
-        background: rgba(0, 0, 0, 0.85);
-        color: white; padding: 15px 40px;
-        border-radius: 50px; text-align: center;
-        border: 2px solid rgba(255, 255, 255, 0.2);
-        box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        margin-top: 60px; align-self: center;
+        background: rgba(20, 20, 20, 0.9); color: white;
+        padding: 10px 30px; border-radius: 50px;
+        text-align: center; border: 1px solid rgba(255,255,255,0.3);
+        box-shadow: 0 4px 15px rgba(0,0,0,0.5);
     }
-    #dist-text { font-size: 36px; font-weight: 800; }
-    #status-text { font-size: 14px; color: #ccc; text-transform: uppercase; letter-spacing: 1px; }
+    #dist-text { font-size: 32px; font-weight: 800; }
+    #status-text { font-size: 12px; color: #aaa; text-transform: uppercase; margin-top: 2px; }
 
-    /* AR Arrow */
     #arrow-container {
-        flex-grow: 1;
-        display: flex; align-items: center; justify-content: center;
-        perspective: 1000px;
+        flex-grow: 1; display: flex;
+        align-items: center; justify-content: center;
     }
     #arrow-img {
-        width: 180px; height: 180px;
+        width: 160px; height: 160px;
         background-image: url("https://cdn-icons-png.flaticon.com/512/724/724927.png");
         background-size: contain; background-repeat: no-repeat;
-        filter: drop-shadow(0 0 15px #00e5ff);
-        transition: transform 0.1s linear; /* Fast response for Android */
+        filter: drop-shadow(0 0 20px #00e5ff); 
+        transition: transform 0.5s linear; /* Slower transition for GPS updates */
     }
 
-    /* Mini Map */
     #mini-map-container {
         position: absolute; bottom: 30px; right: 20px;
-        width: 160px; height: 160px;
-        border-radius: 20px; overflow: hidden;
-        border: 3px solid white;
-        background: #222; pointer-events: auto;
+        width: 180px; height: 180px;
+        border-radius: 25px; overflow: hidden;
+        border: 4px solid rgba(255,255,255,0.8);
+        background: #222;
     }
     #map { width: 100%; height: 100%; }
 
-    /* Start Button */
     #start-btn {
         position: fixed; top: 50%; left: 50%;
         transform: translate(-50%, -50%);
-        padding: 20px 50px; font-size: 20px; font-weight: bold;
-        background: #007cbf; color: white; border: none;
-        border-radius: 50px; cursor: pointer; z-index: 1000;
-        box-shadow: 0 0 20px rgba(0, 124, 191, 0.6);
+        padding: 18px 45px; font-size: 18px; font-weight: bold;
+        background: #007cbf; color: white; border: none; border-radius: 50px;
+        cursor: pointer; z-index: 1000; pointer-events: auto;
     }
 </style>
 </head>
@@ -90,9 +76,8 @@
 
     <div id="ui-layer">
         <div id="debug-panel">
-            GPS Acc: <span id="dbg-acc">--</span> m<br>
-            Node: <span id="dbg-idx">0</span><br>
-            Next: <span id="dbg-dist">--</span> m
+            <div>GPS Acc: <span id="dbg-acc">--</span> m</div>
+            <div>Course: <span id="dbg-course">--</span>°</div>
         </div>
 
         <div class="info-badge">
@@ -109,174 +94,144 @@
         </div>
     </div>
 
-    <button id="start-btn" onclick="startAndroidSystem()">START NAVIGATION</button>
+    <button id="start-btn" onclick="startSystem()">START</button>
 
     <script src="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.js"></script>
 
 <script>
-    /* ================= 1. CONFIGURATION ================= */
-    const MAPBOX_TOKEN = "pk.eyJ1IjoiaGVtYW50aDg1MDMiLCJhIjoiY21rNzV5c2w2MHlqeTNncjI5bjkyeWJwaiJ9.NnunzAB_24Ntn83H5hRcyQ";
-    const DESTINATION = { lat: 12.9719, lng: 79.1602 }; // VIT SJT
-    const NODE_SWITCH_DIST = 15; // Meters
+    // 🔴 1. CONFIG
+    const MAPBOX_TOKEN = 'pk.eyJ1IjoiaGVtYW50aDg1MDMiLCJhIjoiY21rNzV5c2w2MHlqeTNncjI5bjkyeWJwaiJ9.NnunzAB_24Ntn83H5hRcyQ'; 
+    const DESTINATION = { lat: 12.9692, lng: 79.1559 }; // VIT Main Gate
+    const NODE_SWITCH_DIST = 15; 
 
-    /* ================= 2. STATE ================= */
-    let map, routeCoords = [], nextNodeIndex = 0;
-    let currentHeading = 0;
+    // STATE
+    let map;
+    let routeCoords = []; 
+    let nextNodeIndex = 0;
     let isFetchingRoute = false;
+    let currentGPSCourse = 0; // Stores the direction you are MOVING
 
-    /* ================= 3. ANDROID STARTUP ================= */
-    async function startAndroidSystem() {
+    // STARTUP
+    async function startSystem() {
+        if(MAPBOX_TOKEN.includes('YOUR_MAPBOX')) return alert("Missing Token");
         document.getElementById("start-btn").style.display = "none";
-        document.getElementById("status-text").innerText = "Initializing Sensors...";
+        document.getElementById("status-text").innerText = "Waiting for movement...";
 
-        // A. Camera (Android "environment" mode)
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ 
-                video: { facingMode: "environment" } 
-            });
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
             document.getElementById("camera-feed").srcObject = stream;
-        } catch(e) { 
-            alert("Camera failed. Check permissions."); 
-        }
+        } catch(e) { console.error(e); }
 
-        // B. Mapbox Init
-        mapboxgl.accessToken = MAPBOX_TOKEN;
-        map = new mapboxgl.Map({
-            container: "map",
-            style: "mapbox://styles/mapbox/dark-v11",
-            center: [DESTINATION.lng, DESTINATION.lat],
-            zoom: 17, attributionControl: false
-        });
+        initMapbox();
 
-        // C. Compass (Android Specific)
-        // We use 'deviceorientationabsolute' for better Android accuracy
-        if ('ondeviceorientationabsolute' in window) {
-            window.addEventListener("deviceorientationabsolute", handleAndroidOrientation);
-        } else {
-            window.addEventListener("deviceorientation", handleAndroidOrientation);
-        }
-
-        // D. GPS
-        if (navigator.geolocation) {
-            navigator.geolocation.watchPosition(handleLocation, err => console.warn(err), {
+        if(navigator.geolocation) {
+            navigator.geolocation.watchPosition(handleLocation, console.warn, {
                 enableHighAccuracy: true, maximumAge: 0, timeout: 5000
             });
         }
     }
 
-    /* ================= 4. LOCATION LOGIC ================= */
+    function initMapbox() {
+        mapboxgl.accessToken = MAPBOX_TOKEN;
+        map = new mapboxgl.Map({
+            container: 'map',
+            style: 'mapbox://styles/mapbox/dark-v11',
+            center: [DESTINATION.lng, DESTINATION.lat], zoom: 17, attributionControl: false
+        });
+    }
+
+    // MAIN LOOP
     function handleLocation(pos) {
-        const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
         
-        // Debug Info
-        document.getElementById("dbg-acc").innerText = Math.round(accuracy);
-        if (map) map.setCenter([lng, lat]);
+        // CRITICAL CHANGE: We use GPS 'heading' (Course) instead of Compass
+        // This value is NaN if you are standing still!
+        if(pos.coords.heading) {
+            currentGPSCourse = pos.coords.heading;
+            document.getElementById("dbg-course").innerText = Math.round(currentGPSCourse);
+        }
 
-        // Filter bad GPS data
-        if (accuracy > 50) return;
+        document.getElementById("dbg-acc").innerText = Math.round(pos.coords.accuracy);
+        if(map) map.setCenter([lng, lat]);
 
-        // Fetch Route once
-        if (routeCoords.length === 0 && !isFetchingRoute) {
-            fetchRoute(lat, lng);
-        } else if (routeCoords.length > 0) {
+        if(routeCoords.length === 0 && !isFetchingRoute) {
+            getRoute(lat, lng);
+        } else if(routeCoords.length > 0) {
             updateGuidance(lat, lng);
         }
     }
 
-    async function fetchRoute(lat, lng) {
+    async function getRoute(lat, lng) {
         isFetchingRoute = true;
-        document.getElementById("status-text").innerText = "Finding Path...";
+        document.getElementById("status-text").innerText = "Loading Route...";
         
-        // Fixed URL Syntax
         const url = `https://api.mapbox.com/directions/v5/mapbox/walking/${lng},${lat};${DESTINATION.lng},${DESTINATION.lat}?steps=true&geometries=geojson&access_token=${MAPBOX_TOKEN}`;
 
         try {
             const res = await fetch(url);
             const data = await res.json();
-            
-            if (data.routes && data.routes.length > 0) {
+            if(data.routes && data.routes.length > 0) {
                 routeCoords = data.routes[0].geometry.coordinates;
+                nextNodeIndex = 0;
                 drawRoute(routeCoords);
-                document.getElementById("status-text").innerText = "Follow Arrow";
+                document.getElementById("status-text").innerText = "Walk to calibrate arrow";
             }
-        } catch (e) { console.error(e); }
+        } catch(e) { console.error(e); }
     }
 
-    /* ================= 5. GUIDANCE ================= */
     function updateGuidance(lat, lng) {
-        let [tLng, tLat] = routeCoords[nextNodeIndex];
-        let distToNode = getDistance(lat, lng, tLat, tLng);
+        // 1. Get Target Node
+        let targetLng = routeCoords[nextNodeIndex][0];
+        let targetLat = routeCoords[nextNodeIndex][1];
+        let distToNode = getDistance(lat, lng, targetLat, targetLng);
 
-        document.getElementById("dbg-idx").innerText = nextNodeIndex;
-        document.getElementById("dbg-dist").innerText = Math.round(distToNode);
+        // 2. Smart Skip Logic (Avoid getting stuck)
+        if (nextNodeIndex < routeCoords.length - 1) {
+            let nextLng = routeCoords[nextNodeIndex + 1][0];
+            let nextLat = routeCoords[nextNodeIndex + 1][1];
+            let distToNext = getDistance(lat, lng, nextLat, nextLng);
+            
+            if (distToNext < distToNode) {
+                nextNodeIndex++;
+                targetLng = nextLng;
+                targetLat = nextLat;
+            }
+        }
 
-        // Switch to next node if close
+        // 3. Normal Switch
         if (distToNode < NODE_SWITCH_DIST && nextNodeIndex < routeCoords.length - 1) {
             nextNodeIndex++;
         }
 
-        // Update UI
-        let totalDist = getDistance(lat, lng, DESTINATION.lat, DESTINATION.lng);
-        document.getElementById("dist-text").innerText = Math.round(totalDist) + " m";
+        // 4. Update UI
+        const totalDist = getDistance(lat, lng, DESTINATION.lat, DESTINATION.lng);
+        document.getElementById("dist-text").innerText = Math.round(totalDist) + "m";
 
-        // Update Arrow
-        let targetBearing = getBearing(lat, lng, tLat, tLng);
-        updateArrow(targetBearing);
+        // 5. UPDATE ARROW (GPS ONLY)
+        const bearingToTarget = getBearing(lat, lng, targetLat, targetLng);
+        
+        // Rotation = Target Bearing - Your Movement Direction
+        let rotation = bearingToTarget - currentGPSCourse;
+        
+        // Normalize rotation
+        while(rotation < -180) rotation += 360;
+        while(rotation > 180) rotation -= 360;
+
+        document.getElementById("arrow-img").style.transform = `rotate(${rotation}deg)`;
     }
 
-    /* ================= 6. ANDROID COMPASS ================= */
-    function handleAndroidOrientation(e) {
-        // Android specific: Alpha is usually 0 at North.
-        // If absolute is available, use it. If not, fallback to alpha.
-        // We do 360 - alpha to match standard bearing.
-        let alpha = e.alpha;
-        if(e.webkitCompassHeading) return; // Ignore iOS events if they sneak in
-
-        // Calculate Heading
-        let heading = 360 - alpha; 
-        currentHeading = heading;
-        
-        // Note: For live navigation, we don't need heavy smoothing on Android 
-        // as 'deviceorientationabsolute' is usually filtered by the OS.
-        
-        // If we have a target, update rotation immediately
-        if (routeCoords.length > 0) {
-            let [tLng, tLat] = routeCoords[nextNodeIndex];
-            // We need current position to calculate bearing relative to us
-            // But 'handleLocation' updates slower. We use the stored arrow rotation logic.
-        }
-    }
-
-    function updateArrow(targetBearing) {
-        let rot = targetBearing - currentHeading;
-        
-        // Normalize rotation for shortest path
-        while (rot < -180) rot += 360;
-        while (rot > 180) rot -= 360;
-
-        // Apply rotation (Fixed Backticks)
-        document.getElementById("arrow-img").style.transform = `rotate(${rot}deg)`;
-    }
-
-    /* ================= 7. MAP & MATH ================= */
     function drawRoute(coords) {
-        const addLayer = () => {
-            if (!map.getSource('route')) {
-                map.addSource('route', {
-                    type: 'geojson',
-                    data: { type: 'Feature', geometry: { type: 'LineString', coordinates: coords } }
-                });
-                map.addLayer({
-                    id: 'route', type: 'line', source: 'route',
-                    paint: { 'line-color': '#00e5ff', 'line-width': 5 }
-                });
+        const draw = () => {
+            if(!map.getSource('route')) {
+                map.addSource('route', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: coords } } });
+                map.addLayer({ id: 'route', type: 'line', source: 'route', paint: { 'line-color': '#00e5ff', 'line-width': 6 } });
             }
         };
-        if (map.loaded()) addLayer();
-        else map.on('load', addLayer);
+        if(map.loaded()) draw(); else map.on('load', draw);
     }
 
-    // Fixed Math Formulas
+    // MATH
     function getDistance(lat1, lon1, lat2, lon2) {
         const R = 6371e3;
         const φ1 = lat1 * Math.PI/180, φ2 = lat2 * Math.PI/180;
