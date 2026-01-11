@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>AR Navigation (Compact UI)</title>
+<title>AR Navigation (Final Demo)</title>
 
 <link href="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.css" rel="stylesheet">
 
@@ -29,7 +29,7 @@
         border: 1px solid #00e5ff; pointer-events: auto; z-index: 50;
     }
 
-    /* DISTANCE BADGE (Top Center - Smaller) */
+    /* DISTANCE BADGE (Top Center) */
     .info-badge {
         position: absolute; top: 30px; width: 100%; text-align: center;
     }
@@ -41,29 +41,28 @@
     #dist-text { font-size: 28px; font-weight: 800; display: block; }
     #status-text { font-size: 10px; color: #ccc; text-transform: uppercase; margin-top: 2px; letter-spacing: 1px; }
 
-    /* --- DASHBOARD UI (BOTTOM) --- */
+    /* --- DASHBOARD UI (BOTTOM RIGHT) --- */
 
-    /* AR ARROW (Bottom Right - SMALLER) */
+    /* AR ARROW */
     #arrow-container {
         position: absolute; 
         bottom: 60px;       
-        right: 210px;       /* Adjusted for smaller map/arrow */
-        width: 80px; height: 80px; /* Reduced from 140px */
+        right: 210px;       
+        width: 80px; height: 80px; 
         display: flex; align-items: center; justify-content: center;
     }
     #arrow-img {
-        width: 80px; height: 80px; /* Reduced from 140px */
+        width: 80px; height: 80px; 
         background-image: url("https://cdn-icons-png.flaticon.com/512/724/724927.png");
         background-size: contain; background-repeat: no-repeat;
-        /* Clean shadow, no animation */
         filter: drop-shadow(0 0 10px #00e5ff); 
         transition: transform 0.2s linear;
     }
 
-    /* MINI MAP (Bottom Right Corner) */
+    /* MINI MAP */
     #mini-map-container {
         position: absolute; bottom: 30px; right: 20px;
-        width: 160px; height: 160px; /* Slightly smaller map */
+        width: 160px; height: 160px;
         border-radius: 50%;
         border: 3px solid white; overflow: hidden; background: #222; 
         pointer-events: auto;
@@ -79,17 +78,15 @@
         cursor: pointer; pointer-events: auto; z-index: 1000;
     }
 
-    /* USER MARKER (Solid Blue, No Blinking) */
+    /* USER MARKER */
     .user-marker {
         width: 18px; height: 18px;
         background-color: #00e5ff;
         border: 2px solid white;
         border-radius: 50%;
-        /* Static shadow, no pulsing animation */
         box-shadow: 0 0 8px rgba(0, 0, 0, 0.5); 
         display: flex; justify-content: center; align-items: center;
     }
-    /* Direction Cone */
     .user-marker::after {
         content: ''; width: 0; height: 0;
         border-left: 5px solid transparent;
@@ -134,28 +131,33 @@
 
 <script>
     /* ================= 1. CONFIGURATION ================= */
+    
+    // 🔴 1. PASTE YOUR TOKEN
     const MAPBOX_TOKEN = 'pk.eyJ1IjoiaGVtYW50aDg1MDMiLCJhIjoiY21rNzV5c2w2MHlqeTNncjI5bjkyeWJwaiJ9.NnunzAB_24Ntn83H5hRcyQ'; 
+    
+    // 🔴 2. SET DESTINATION (Lat, Lng)
     const DESTINATION = { lat: 12.9692, lng: 79.1559 }; // VIT Main Gate
 
-    // 🔴 UPDATED TUNING
-    const NODE_SWITCH_DIST = 10;   // Reduced to 10m for tighter nodes
-    const SMOOTHING_FACTOR = 0.15; // Keeps GPS smooth
+    // 🔴 3. TUNING
+    const NODE_SWITCH_DIST = 6;    // 6 Meters (Precise Turns)
+    const SMOOTHING_FACTOR = 0.15; // Smooth GPS movement
 
-    /* ================= 2. STATE ================= */
+    /* ================= 2. STATE VARIABLES ================= */
     let map;
     let userMarker; 
     let routeCoords = []; 
     let nextNodeIndex = 0;
     let isFetchingRoute = false;
     
+    // Sensor Data
     let smoothLat = 0;
     let smoothLng = 0;
     let currentHeading = 0;
     let smoothedHeading = 0;
 
-    /* ================= 3. STARTUP ================= */
+    /* ================= 3. SYSTEM STARTUP ================= */
     async function startSystem() {
-        if(MAPBOX_TOKEN.includes('YOUR_MAPBOX')) return alert("Paste Token!");
+        if(MAPBOX_TOKEN.includes('YOUR_MAPBOX')) return alert("Paste Mapbox Token!");
 
         document.getElementById("start-btn").style.display = "none";
         document.getElementById("status-text").innerText = "Aligning...";
@@ -163,7 +165,7 @@
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
             document.getElementById("camera-feed").srcObject = stream;
-        } catch(e) { console.error(e); }
+        } catch(e) { console.error("Camera Error:", e); }
 
         initMapbox();
         setupCompass();
@@ -179,7 +181,7 @@
             container: 'map',
             style: 'mapbox://styles/mapbox/dark-v11', 
             center: [DESTINATION.lng, DESTINATION.lat], 
-            zoom: 18, // Slightly more zoomed in
+            zoom: 18, 
             attributionControl: false,
             pitch: 0
         });
@@ -191,7 +193,7 @@
             .addTo(map);
     }
 
-    /* ================= 4. LOGIC ================= */
+    /* ================= 4. MAIN LOGIC LOOP ================= */
     function handleLocation(pos) {
         const rawLat = pos.coords.latitude;
         const rawLng = pos.coords.longitude;
@@ -199,6 +201,7 @@
 
         document.getElementById("dbg-acc").innerText = Math.round(acc);
 
+        // 1. Low Pass Filter (Smoothing)
         if (smoothLat === 0) {
             smoothLat = rawLat; smoothLng = rawLng;
         } else {
@@ -206,14 +209,18 @@
             smoothLng = smoothLng + (rawLng - smoothLng) * SMOOTHING_FACTOR;
         }
 
+        // 2. Update Map Marker
         if(map && userMarker) {
             userMarker.setLngLat([smoothLng, smoothLat]);
             map.setCenter([smoothLng, smoothLat]);
         }
 
+        // 3. Fetch Route (First Time)
         if(routeCoords.length === 0 && !isFetchingRoute) {
             getRoute(smoothLat, smoothLng);
-        } else if(routeCoords.length > 0) {
+        } 
+        // 4. Update Navigation
+        else if(routeCoords.length > 0) {
             updateGuidance(smoothLat, smoothLng);
         }
     }
@@ -230,7 +237,24 @@
             
             if(data.routes && data.routes.length > 0) {
                 routeCoords = data.routes[0].geometry.coordinates;
-                nextNodeIndex = 0;
+                
+                // --- SMART START: Find Closest Node ---
+                let closestIndex = 0;
+                let minDistance = Infinity;
+
+                for (let i = 0; i < routeCoords.length; i++) {
+                    const nodeLng = routeCoords[i][0];
+                    const nodeLat = routeCoords[i][1];
+                    const dist = getDistance(lat, lng, nodeLat, nodeLng);
+                    if (dist < minDistance) {
+                        minDistance = dist;
+                        closestIndex = i;
+                    }
+                }
+                
+                nextNodeIndex = closestIndex;
+                console.log("Starting at Node:", nextNodeIndex);
+                
                 drawRoute(routeCoords);
                 document.getElementById("status-text").innerText = "Go";
             }
@@ -244,12 +268,13 @@
         
         document.getElementById("dbg-dist").innerText = Math.round(distToNode);
 
-        // Smart Skip
+        // A. Smart Skip (Look Ahead)
         if (nextNodeIndex < routeCoords.length - 1) {
             let nextLng = routeCoords[nextNodeIndex + 1][0];
             let nextLat = routeCoords[nextNodeIndex + 1][1];
             let distToNext = getDistance(lat, lng, nextLat, nextLng);
 
+            // If closer to NEXT node than CURRENT node, skip current
             if (distToNext < distToNode) {
                 nextNodeIndex++;
                 targetLat = nextLat; targetLng = nextLng;
@@ -257,19 +282,21 @@
             }
         }
 
-        // Standard Switch (Reduced Distance)
+        // B. Standard Switch (Radius Check: 6m)
         if (distToNode < NODE_SWITCH_DIST && nextNodeIndex < routeCoords.length - 1) {
             nextNodeIndex++;
         }
 
-        // Bearing (Lie Method)
+        // C. Bearing Calculation ("Lie Method")
         let bearing;
         if (nextNodeIndex > 0) {
+            // Locked Mode: Use Path Direction
             let prevLng = routeCoords[nextNodeIndex - 1][0];
             let prevLat = routeCoords[nextNodeIndex - 1][1];
             bearing = getBearing(prevLat, prevLng, targetLat, targetLng);
             document.getElementById("dbg-mode").innerText = "LOCK";
         } else {
+            // Direct Mode: Use GPS Direction
             bearing = getBearing(lat, lng, targetLat, targetLng);
             document.getElementById("dbg-mode").innerText = "DIR";
         }
@@ -324,15 +351,17 @@
     /* ================= 6. DRAW & MATH ================= */
     function drawRoute(coords) {
         const draw = () => {
+            // 1. Path Line
             if(!map.getSource('route')) {
                 map.addSource('route', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: coords } } });
                 map.addLayer({ id: 'route', type: 'line', source: 'route', paint: { 'line-color': '#00e5ff', 'line-width': 6 } });
             }
+            // 2. Visual Nodes (3px)
             if(!map.getSource('route-nodes')) {
                 map.addSource('route-nodes', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'MultiPoint', coordinates: coords } } });
                 map.addLayer({
                     id: 'route-nodes-layer', type: 'circle', source: 'route-nodes',
-                    paint: { 'circle-radius': 4, 'circle-color': '#fff', 'circle-stroke-width': 1, 'circle-stroke-color': '#000' }
+                    paint: { 'circle-radius': 3, 'circle-color': '#fff', 'circle-stroke-width': 1, 'circle-stroke-color': '#000' }
                 });
             }
         };
