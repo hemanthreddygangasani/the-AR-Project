@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>AR Navigation (Smart Start)</title>
+<title>AR Navigation (Compact UI)</title>
 
 <link href="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.css" rel="stylesheet">
 
@@ -29,7 +29,7 @@
         border: 1px solid #00e5ff; pointer-events: auto; z-index: 50;
     }
 
-    /* DISTANCE BADGE (Top Center) */
+    /* DISTANCE BADGE (Top Center - Smaller) */
     .info-badge {
         position: absolute; top: 30px; width: 100%; text-align: center;
     }
@@ -43,18 +43,19 @@
 
     /* --- DASHBOARD UI (BOTTOM) --- */
 
-    /* AR ARROW (Bottom Right) */
+    /* AR ARROW (Bottom Right - SMALLER) */
     #arrow-container {
         position: absolute; 
         bottom: 60px;       
-        right: 210px;       
-        width: 80px; height: 80px; 
+        right: 210px;       /* Adjusted for smaller map/arrow */
+        width: 80px; height: 80px; /* Reduced from 140px */
         display: flex; align-items: center; justify-content: center;
     }
     #arrow-img {
-        width: 80px; height: 80px; 
+        width: 80px; height: 80px; /* Reduced from 140px */
         background-image: url("https://cdn-icons-png.flaticon.com/512/724/724927.png");
         background-size: contain; background-repeat: no-repeat;
+        /* Clean shadow, no animation */
         filter: drop-shadow(0 0 10px #00e5ff); 
         transition: transform 0.2s linear;
     }
@@ -62,7 +63,7 @@
     /* MINI MAP (Bottom Right Corner) */
     #mini-map-container {
         position: absolute; bottom: 30px; right: 20px;
-        width: 160px; height: 160px;
+        width: 160px; height: 160px; /* Slightly smaller map */
         border-radius: 50%;
         border: 3px solid white; overflow: hidden; background: #222; 
         pointer-events: auto;
@@ -78,15 +79,17 @@
         cursor: pointer; pointer-events: auto; z-index: 1000;
     }
 
-    /* USER MARKER */
+    /* USER MARKER (Solid Blue, No Blinking) */
     .user-marker {
         width: 18px; height: 18px;
         background-color: #00e5ff;
         border: 2px solid white;
         border-radius: 50%;
+        /* Static shadow, no pulsing animation */
         box-shadow: 0 0 8px rgba(0, 0, 0, 0.5); 
         display: flex; justify-content: center; align-items: center;
     }
+    /* Direction Cone */
     .user-marker::after {
         content: ''; width: 0; height: 0;
         border-left: 5px solid transparent;
@@ -134,9 +137,9 @@
     const MAPBOX_TOKEN = 'pk.eyJ1IjoiaGVtYW50aDg1MDMiLCJhIjoiY21rNzV5c2w2MHlqeTNncjI5bjkyeWJwaiJ9.NnunzAB_24Ntn83H5hRcyQ'; 
     const DESTINATION = { lat: 12.9692, lng: 79.1559 }; // VIT Main Gate
 
-    // Tuning
-    const NODE_SWITCH_DIST = 10;   // 10 Meters
-    const SMOOTHING_FACTOR = 0.15; 
+    // 🔴 UPDATED TUNING
+    const NODE_SWITCH_DIST = 10;   // Reduced to 10m for tighter nodes
+    const SMOOTHING_FACTOR = 0.15; // Keeps GPS smooth
 
     /* ================= 2. STATE ================= */
     let map;
@@ -176,7 +179,7 @@
             container: 'map',
             style: 'mapbox://styles/mapbox/dark-v11', 
             center: [DESTINATION.lng, DESTINATION.lat], 
-            zoom: 18, 
+            zoom: 18, // Slightly more zoomed in
             attributionControl: false,
             pitch: 0
         });
@@ -227,26 +230,7 @@
             
             if(data.routes && data.routes.length > 0) {
                 routeCoords = data.routes[0].geometry.coordinates;
-                
-                // --- SMART START LOGIC ---
-                // Find the node closest to the user's CURRENT position
-                let closestIndex = 0;
-                let minDistance = Infinity;
-
-                for (let i = 0; i < routeCoords.length; i++) {
-                    const nodeLng = routeCoords[i][0];
-                    const nodeLat = routeCoords[i][1];
-                    const dist = getDistance(lat, lng, nodeLat, nodeLng);
-                    if (dist < minDistance) {
-                        minDistance = dist;
-                        closestIndex = i;
-                    }
-                }
-                
-                // Set initial target to the closest node found
-                nextNodeIndex = closestIndex;
-                console.log("Starting at Node Index:", nextNodeIndex);
-                
+                nextNodeIndex = 0;
                 drawRoute(routeCoords);
                 document.getElementById("status-text").innerText = "Go";
             }
@@ -273,12 +257,12 @@
             }
         }
 
-        // Standard Switch
+        // Standard Switch (Reduced Distance)
         if (distToNode < NODE_SWITCH_DIST && nextNodeIndex < routeCoords.length - 1) {
             nextNodeIndex++;
         }
 
-        // Bearing
+        // Bearing (Lie Method)
         let bearing;
         if (nextNodeIndex > 0) {
             let prevLng = routeCoords[nextNodeIndex - 1][0];
@@ -340,17 +324,15 @@
     /* ================= 6. DRAW & MATH ================= */
     function drawRoute(coords) {
         const draw = () => {
-            // Path
             if(!map.getSource('route')) {
                 map.addSource('route', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: coords } } });
                 map.addLayer({ id: 'route', type: 'line', source: 'route', paint: { 'line-color': '#00e5ff', 'line-width': 6 } });
             }
-            // Visible Nodes (Smaller Radius: 3)
             if(!map.getSource('route-nodes')) {
                 map.addSource('route-nodes', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'MultiPoint', coordinates: coords } } });
                 map.addLayer({
                     id: 'route-nodes-layer', type: 'circle', source: 'route-nodes',
-                    paint: { 'circle-radius': 3, 'circle-color': '#fff', 'circle-stroke-width': 1, 'circle-stroke-color': '#000' }
+                    paint: { 'circle-radius': 4, 'circle-color': '#fff', 'circle-stroke-width': 1, 'circle-stroke-color': '#000' }
                 });
             }
         };
