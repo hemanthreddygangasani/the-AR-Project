@@ -3,96 +3,57 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>AR Navigation (Final Demo)</title>
+<title>AR Navigation (GPS Only)</title>
 
 <link href="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.css" rel="stylesheet">
 
 <style>
-    /* --- 1. GENERAL LAYOUT --- */
+    /* --- 1. LAYOUT --- */
     body { margin: 0; overflow: hidden; background: black; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     
-    #camera-feed {
-        position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-        object-fit: cover; z-index: -1;
-    }
+    #camera-feed { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; z-index: -1; }
+    #ui-layer { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
 
-    #ui-layer {
-        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-        pointer-events: none;
-    }
+    /* --- 2. UI ELEMENTS --- */
     
-    /* DEBUG PANEL (Top Left) */
-    #debug-panel {
-        position: absolute; top: 10px; left: 10px;
-        background: rgba(0,0,0,0.6); color: #00e5ff;
-        padding: 5px; border-radius: 4px; font-size: 10px; font-family: monospace;
-        border: 1px solid #00e5ff; pointer-events: auto; z-index: 50;
-    }
-
-    /* DISTANCE BADGE (Top Center) */
-    .info-badge {
-        position: absolute; top: 30px; width: 100%; text-align: center;
-    }
+    /* Distance Badge */
+    .info-badge { position: absolute; top: 30px; width: 100%; text-align: center; }
     .badge-inner {
         display: inline-block; background: rgba(0, 0, 0, 0.85); color: white;
-        padding: 8px 25px; border-radius: 50px; border: 1px solid rgba(255,255,255,0.2);
-        backdrop-filter: blur(4px);
+        padding: 10px 30px; border-radius: 50px; border: 1px solid rgba(255,255,255,0.2);
     }
-    #dist-text { font-size: 28px; font-weight: 800; display: block; }
-    #status-text { font-size: 10px; color: #ccc; text-transform: uppercase; margin-top: 2px; letter-spacing: 1px; }
+    #dist-text { font-size: 32px; font-weight: 800; display: block; }
+    #status-text { font-size: 11px; color: #ccc; text-transform: uppercase; letter-spacing: 1px; }
 
-    /* --- DASHBOARD UI (BOTTOM RIGHT) --- */
-
-    /* AR ARROW */
+    /* AR Arrow */
     #arrow-container {
-        position: absolute; 
-        bottom: 60px;       
-        right: 210px;       
-        width: 80px; height: 80px; 
+        position: absolute; bottom: 80px; right: 200px; /* Left of the map */
+        width: 100px; height: 100px;
         display: flex; align-items: center; justify-content: center;
     }
     #arrow-img {
-        width: 80px; height: 80px; 
+        width: 100px; height: 100px;
         background-image: url("https://cdn-icons-png.flaticon.com/512/724/724927.png");
         background-size: contain; background-repeat: no-repeat;
-        filter: drop-shadow(0 0 10px #00e5ff); 
-        transition: transform 0.2s linear;
+        filter: drop-shadow(0 0 15px #00e5ff); 
+        transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); /* Smoother transition for GPS */
     }
 
-    /* MINI MAP */
+    /* Mini Map */
     #mini-map-container {
         position: absolute; bottom: 30px; right: 20px;
         width: 160px; height: 160px;
-        border-radius: 50%;
-        border: 3px solid white; overflow: hidden; background: #222; 
-        pointer-events: auto;
-        box-shadow: 0 5px 20px rgba(0,0,0,0.8);
+        border-radius: 50%; border: 3px solid white; 
+        overflow: hidden; background: #222; pointer-events: auto;
     }
     #map { width: 100%; height: 100%; }
 
-    /* START BUTTON */
+    /* Start Button */
     #start-btn {
         position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-        padding: 15px 40px; font-size: 16px; font-weight: bold;
+        padding: 15px 40px; font-size: 18px; font-weight: bold;
         background: #007cbf; color: white; border: none; border-radius: 50px;
         cursor: pointer; pointer-events: auto; z-index: 1000;
-    }
-
-    /* USER MARKER */
-    .user-marker {
-        width: 18px; height: 18px;
-        background-color: #00e5ff;
-        border: 2px solid white;
-        border-radius: 50%;
-        box-shadow: 0 0 8px rgba(0, 0, 0, 0.5); 
-        display: flex; justify-content: center; align-items: center;
-    }
-    .user-marker::after {
-        content: ''; width: 0; height: 0;
-        border-left: 5px solid transparent;
-        border-right: 5px solid transparent;
-        border-bottom: 7px solid white;
-        position: absolute; top: -8px; 
     }
 </style>
 </head>
@@ -102,13 +63,6 @@
     <video id="camera-feed" autoplay playsinline muted></video>
 
     <div id="ui-layer">
-        
-        <div id="debug-panel">
-            <div>GPS Acc: <span id="dbg-acc">--</span>m</div>
-            <div>Mode: <span id="dbg-mode">--</span></div>
-            <div>DistToNode: <span id="dbg-dist">--</span>m</div>
-        </div>
-
         <div class="info-badge">
             <div class="badge-inner">
                 <span id="dist-text">-- m</span>
@@ -125,262 +79,147 @@
         </div>
     </div>
 
-    <button id="start-btn" onclick="startSystem()">START</button>
+    <button id="start-btn" onclick="startSystem()">START NAVIGATION</button>
 
     <script src="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.js"></script>
 
 <script>
     /* ================= 1. CONFIGURATION ================= */
-    
-    // 🔴 1. PASTE YOUR TOKEN
     const MAPBOX_TOKEN = 'pk.eyJ1IjoiaGVtYW50aDg1MDMiLCJhIjoiY21rNzV5c2w2MHlqeTNncjI5bjkyeWJwaiJ9.NnunzAB_24Ntn83H5hRcyQ'; 
-    
-    // 🔴 2. SET DESTINATION (Lat, Lng)
-    const DESTINATION = { lat: 12.9692, lng: 79.1559 }; // VIT Main Gate
+    const DESTINATION = { lat: 12.9719, lng: 79.1602 }; // VIT SJT
+    const ARRIVAL_DIST = 15;
 
-    // 🔴 3. TUNING
-    const NODE_SWITCH_DIST = 6;    // 6 Meters (Precise Turns)
-    const SMOOTHING_FACTOR = 0.15; // Smooth GPS movement
+    /* ================= 2. STATE ================= */
+    let map, userMarker;
+    let smoothLat = 0, smoothLng = 0;
+    let prevLat = 0, prevLng = 0; // NEW: To track movement
+    let movementHeading = 0;      // NEW: Calculated from walking
+    let lastTargetBearing = 0;
+    let hasArrived = false;
 
-    /* ================= 2. STATE VARIABLES ================= */
-    let map;
-    let userMarker; 
-    let routeCoords = []; 
-    let nextNodeIndex = 0;
-    let isFetchingRoute = false;
-    
-    // Sensor Data
-    let smoothLat = 0;
-    let smoothLng = 0;
-    let currentHeading = 0;
-    let smoothedHeading = 0;
-
-    /* ================= 3. SYSTEM STARTUP ================= */
+    /* ================= 3. STARTUP ================= */
     async function startSystem() {
-        if(MAPBOX_TOKEN.includes('YOUR_MAPBOX')) return alert("Paste Mapbox Token!");
-
         document.getElementById("start-btn").style.display = "none";
-        document.getElementById("status-text").innerText = "Aligning...";
+        document.getElementById("status-text").innerText = "Walk to Align...";
 
+        // A. Camera
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
             document.getElementById("camera-feed").srcObject = stream;
-        } catch(e) { console.error("Camera Error:", e); }
+        } catch(e) { console.error("Camera failed", e); }
 
+        // B. Mapbox
         initMapbox();
-        setupCompass();
 
+        // C. GPS Only (No Compass)
         if(navigator.geolocation) {
-            navigator.geolocation.watchPosition(handleLocation, console.warn, { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 });
+            navigator.geolocation.watchPosition(handleLocation, console.warn, { enableHighAccuracy: true, maximumAge: 0 });
         }
     }
 
     function initMapbox() {
         mapboxgl.accessToken = MAPBOX_TOKEN;
         map = new mapboxgl.Map({
-            container: 'map',
-            style: 'mapbox://styles/mapbox/dark-v11', 
-            center: [DESTINATION.lng, DESTINATION.lat], 
-            zoom: 18, 
-            attributionControl: false,
-            pitch: 0
+            container: 'map', style: 'mapbox://styles/mapbox/dark-v11',
+            center: [DESTINATION.lng, DESTINATION.lat], zoom: 17, attributionControl: false
         });
 
         const el = document.createElement('div');
-        el.className = 'user-marker';
-        userMarker = new mapboxgl.Marker(el)
-            .setLngLat([DESTINATION.lng, DESTINATION.lat])
-            .addTo(map);
+        el.style.width = '15px'; el.style.height = '15px';
+        el.style.backgroundColor = '#00e5ff'; el.style.borderRadius = '50%';
+        el.style.border = '2px solid white';
+        userMarker = new mapboxgl.Marker(el).setLngLat([DESTINATION.lng, DESTINATION.lat]).addTo(map);
     }
 
-    /* ================= 4. MAIN LOGIC LOOP ================= */
+    /* ================= 4. GPS MOVEMENT LOGIC ================= */
     function handleLocation(pos) {
+        if(hasArrived) return;
+
         const rawLat = pos.coords.latitude;
         const rawLng = pos.coords.longitude;
-        const acc = pos.coords.accuracy;
 
-        document.getElementById("dbg-acc").innerText = Math.round(acc);
-
-        // 1. Low Pass Filter (Smoothing)
-        if (smoothLat === 0) {
-            smoothLat = rawLat; smoothLng = rawLng;
+        // 1. Smooth GPS Data
+        if (smoothLat === 0) { 
+            smoothLat = rawLat; smoothLng = rawLng; 
+            prevLat = rawLat; prevLng = rawLng; // Init previous
         } else {
-            smoothLat = smoothLat + (rawLat - smoothLat) * SMOOTHING_FACTOR;
-            smoothLng = smoothLng + (rawLng - smoothLng) * SMOOTHING_FACTOR;
+            smoothLat += (rawLat - smoothLat) * 0.2;
+            smoothLng += (rawLng - smoothLng) * 0.2;
         }
 
-        // 2. Update Map Marker
+        // 2. CALCULATE HEADING FROM MOVEMENT
+        // Only update if we moved > 2 meters (prevents jitter while standing)
+        const distMoved = getDistance(prevLat, prevLng, smoothLat, smoothLng);
+        
+        if (distMoved > 2.0) {
+            // We are walking! Update our heading.
+            movementHeading = getBearing(prevLat, prevLng, smoothLat, smoothLng);
+            
+            // Update 'Previous' for next step
+            prevLat = smoothLat;
+            prevLng = smoothLng;
+            
+            document.getElementById("status-text").innerText = "Walking...";
+        }
+
+        // 3. Update Visuals
         if(map && userMarker) {
             userMarker.setLngLat([smoothLng, smoothLat]);
             map.setCenter([smoothLng, smoothLat]);
         }
 
-        // 3. Fetch Route (First Time)
-        if(routeCoords.length === 0 && !isFetchingRoute) {
-            getRoute(smoothLat, smoothLng);
-        } 
-        // 4. Update Navigation
-        else if(routeCoords.length > 0) {
-            updateGuidance(smoothLat, smoothLng);
-        }
-    }
-
-    async function getRoute(lat, lng) {
-        isFetchingRoute = true;
-        document.getElementById("status-text").innerText = "Loading...";
-
-        const url = `https://api.mapbox.com/directions/v5/mapbox/walking/${lng},${lat};${DESTINATION.lng},${DESTINATION.lat}?steps=true&geometries=geojson&access_token=${MAPBOX_TOKEN}`;
-
-        try {
-            const res = await fetch(url);
-            const data = await res.json();
-            
-            if(data.routes && data.routes.length > 0) {
-                routeCoords = data.routes[0].geometry.coordinates;
-                
-                // --- SMART START: Find Closest Node ---
-                let closestIndex = 0;
-                let minDistance = Infinity;
-
-                for (let i = 0; i < routeCoords.length; i++) {
-                    const nodeLng = routeCoords[i][0];
-                    const nodeLat = routeCoords[i][1];
-                    const dist = getDistance(lat, lng, nodeLat, nodeLng);
-                    if (dist < minDistance) {
-                        minDistance = dist;
-                        closestIndex = i;
-                    }
-                }
-                
-                nextNodeIndex = closestIndex;
-                console.log("Starting at Node:", nextNodeIndex);
-                
-                drawRoute(routeCoords);
-                document.getElementById("status-text").innerText = "Go";
-            }
-        } catch(e) { console.error(e); }
+        if (!map.getSource('route')) fetchRoutePath(smoothLat, smoothLng);
+        updateGuidance(smoothLat, smoothLng);
     }
 
     function updateGuidance(lat, lng) {
-        let targetLng = routeCoords[nextNodeIndex][0];
-        let targetLat = routeCoords[nextNodeIndex][1];
-        let distToNode = getDistance(lat, lng, targetLat, targetLng);
-        
-        document.getElementById("dbg-dist").innerText = Math.round(distToNode);
-
-        // A. Smart Skip (Look Ahead)
-        if (nextNodeIndex < routeCoords.length - 1) {
-            let nextLng = routeCoords[nextNodeIndex + 1][0];
-            let nextLat = routeCoords[nextNodeIndex + 1][1];
-            let distToNext = getDistance(lat, lng, nextLat, nextLng);
-
-            // If closer to NEXT node than CURRENT node, skip current
-            if (distToNext < distToNode) {
-                nextNodeIndex++;
-                targetLat = nextLat; targetLng = nextLng;
-                distToNode = distToNext;
-            }
-        }
-
-        // B. Standard Switch (Radius Check: 6m)
-        if (distToNode < NODE_SWITCH_DIST && nextNodeIndex < routeCoords.length - 1) {
-            nextNodeIndex++;
-        }
-
-        // C. Bearing Calculation ("Lie Method")
-        let bearing;
-        if (nextNodeIndex > 0) {
-            // Locked Mode: Use Path Direction
-            let prevLng = routeCoords[nextNodeIndex - 1][0];
-            let prevLat = routeCoords[nextNodeIndex - 1][1];
-            bearing = getBearing(prevLat, prevLng, targetLat, targetLng);
-            document.getElementById("dbg-mode").innerText = "LOCK";
-        } else {
-            // Direct Mode: Use GPS Direction
-            bearing = getBearing(lat, lng, targetLat, targetLng);
-            document.getElementById("dbg-mode").innerText = "DIR";
-        }
-
         const totalDist = getDistance(lat, lng, DESTINATION.lat, DESTINATION.lng);
+
+        if (totalDist < ARRIVAL_DIST) {
+            hasArrived = true;
+            document.getElementById("dist-text").innerText = "0 m";
+            document.getElementById("status-text").innerText = "ARRIVED! 🎉";
+            document.getElementById("arrow-img").style.display = "none";
+            return;
+        }
+
         document.getElementById("dist-text").innerText = Math.round(totalDist) + " m";
 
-        updateArrow(bearing);
-    }
-
-    /* ================= 5. SENSORS ================= */
-    function setupCompass() {
-        if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === "function") {
-            DeviceOrientationEvent.requestPermission().then(r => {
-                if(r==="granted") window.addEventListener("deviceorientation", handleOrientation);
-            });
-        } else {
-            if ('ondeviceorientationabsolute' in window) window.addEventListener("deviceorientationabsolute", handleOrientation);
-            else window.addEventListener("deviceorientation", handleOrientation);
-        }
-    }
-
-    function handleOrientation(e) {
-        let heading = e.webkitCompassHeading || (e.alpha ? 360 - e.alpha : 0);
+        // HYBRID LOGIC: 
+        // Bearing to Destination - Heading from Movement
+        lastTargetBearing = getBearing(lat, lng, DESTINATION.lat, DESTINATION.lng);
         
-        let diff = heading - smoothedHeading;
-        while(diff < -180) diff += 360; while(diff > 180) diff -= 360;
-        smoothedHeading += diff * 0.1;
-        currentHeading = smoothedHeading;
-
-        if (userMarker) {
-            const el = userMarker.getElement();
-            el.style.transform = `rotate(${currentHeading}deg)`;
-        }
-
-        const arrow = document.getElementById("arrow-img");
-        if(arrow.dataset.targetBearing) {
-             let rot = parseFloat(arrow.dataset.targetBearing) - currentHeading;
-             while(rot < -180) rot += 360; while(rot > 180) rot -= 360;
-             arrow.style.transform = `rotate(${rot}deg)`;
-        }
-    }
-
-    function updateArrow(bearing) {
-        const arrow = document.getElementById("arrow-img");
-        arrow.dataset.targetBearing = bearing;
-        let rot = bearing - currentHeading;
+        let rot = lastTargetBearing - movementHeading;
         while(rot < -180) rot += 360; while(rot > 180) rot -= 360;
-        arrow.style.transform = `rotate(${rot}deg)`;
+        
+        document.getElementById("arrow-img").style.transform = `rotate(${rot}deg)`;
     }
 
-    /* ================= 6. DRAW & MATH ================= */
-    function drawRoute(coords) {
-        const draw = () => {
-            // 1. Path Line
-            if(!map.getSource('route')) {
-                map.addSource('route', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: coords } } });
-                map.addLayer({ id: 'route', type: 'line', source: 'route', paint: { 'line-color': '#00e5ff', 'line-width': 6 } });
+    /* ================= 5. ROUTE VISUALIZATION ================= */
+    async function fetchRoutePath(lat, lng) {
+        const url = `https://api.mapbox.com/directions/v5/mapbox/walking/${lng},${lat};${DESTINATION.lng},${DESTINATION.lat}?geometries=geojson&access_token=${MAPBOX_TOKEN}`;
+        try {
+            const res = await fetch(url);
+            const data = await res.json();
+            if(data.routes && data.routes[0]) {
+                const route = data.routes[0].geometry;
+                map.addSource('route', { type: 'geojson', data: { type: 'Feature', geometry: route } });
+                map.addLayer({ id: 'route', type: 'line', source: 'route', paint: { 'line-color': '#00e5ff', 'line-width': 4 } });
             }
-            // 2. Visual Nodes (3px)
-            if(!map.getSource('route-nodes')) {
-                map.addSource('route-nodes', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'MultiPoint', coordinates: coords } } });
-                map.addLayer({
-                    id: 'route-nodes-layer', type: 'circle', source: 'route-nodes',
-                    paint: { 'circle-radius': 3, 'circle-color': '#fff', 'circle-stroke-width': 1, 'circle-stroke-color': '#000' }
-                });
-            }
-        };
-        if(map.loaded()) draw(); else map.on('load', draw);
+        } catch(e) { console.warn("Map route failed", e); }
     }
 
+    /* ================= 6. MATH ================= */
     function getDistance(lat1, lon1, lat2, lon2) {
         const R = 6371e3;
-        const p1 = lat1 * Math.PI/180;
-        const p2 = lat2 * Math.PI/180;
-        const dLat = (lat2-lat1) * Math.PI/180;
-        const dLon = (lon2-lon1) * Math.PI/180;
+        const p1 = lat1 * Math.PI/180, p2 = lat2 * Math.PI/180;
+        const dLat = (lat2-lat1) * Math.PI/180, dLon = (lon2-lon1) * Math.PI/180;
         const a = Math.sin(dLat/2)**2 + Math.cos(p1)*Math.cos(p2)*Math.sin(dLon/2)**2;
         return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     }
 
     function getBearing(lat1, lon1, lat2, lon2) {
-        const p1 = lat1 * Math.PI/180;
-        const p2 = lat2 * Math.PI/180;
+        const p1 = lat1 * Math.PI/180, p2 = lat2 * Math.PI/180;
         const dLon = (lon2-lon1) * Math.PI/180;
         const y = Math.sin(dLon) * Math.cos(p2);
         const x = Math.cos(p1)*Math.sin(p2) - Math.sin(p1)*Math.cos(p2)*Math.cos(dLon);
