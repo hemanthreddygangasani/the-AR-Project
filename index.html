@@ -3,69 +3,76 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>GPS-Only Navigation</title>
+<title>AR Navigation Final</title>
 
 <link href="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.css" rel="stylesheet">
 
 <style>
     /* --- RESET & LAYOUT --- */
-    body { margin: 0; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #000; }
-
+    body { margin: 0; overflow: hidden; background: black; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    
+    /* Camera Feed */
     #camera-feed {
         position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
         object-fit: cover; z-index: -1;
     }
 
+    /* UI Overlay */
     #ui-layer {
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-        display: flex; flex-direction: column; pointer-events: none;
+        pointer-events: none;
     }
-
+    
+    /* Debug Panel (Top Left - For Testing) */
     #debug-panel {
         position: absolute; top: 10px; left: 10px;
-        background: rgba(0, 0, 0, 0.7); color: lime;
-        padding: 8px; border-radius: 5px; font-size: 11px;
-        font-family: monospace; z-index: 500;
-        border: 1px solid lime;
+        background: rgba(0,0,0,0.7); color: #00ff00;
+        padding: 8px; border-radius: 5px; font-size: 11px; font-family: monospace;
+        border: 1px solid #00ff00;
+        z-index: 500;
     }
 
+    /* Distance Badge (Center Top) */
     .info-badge {
-        margin-top: 60px; align-self: center;
-        background: rgba(20, 20, 20, 0.9); color: white;
-        padding: 10px 30px; border-radius: 50px;
-        text-align: center; border: 1px solid rgba(255,255,255,0.3);
-        box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        position: absolute; top: 60px; width: 100%; text-align: center;
+    }
+    .badge-inner {
+        display: inline-block; background: rgba(20, 20, 20, 0.9); color: white;
+        padding: 12px 35px; border-radius: 50px; border: 1px solid rgba(255,255,255,0.3);
+        box-shadow: 0 5px 15px rgba(0,0,0,0.5);
     }
     #dist-text { font-size: 32px; font-weight: 800; }
-    #status-text { font-size: 12px; color: #aaa; text-transform: uppercase; margin-top: 2px; }
+    #status-text { font-size: 12px; color: #aaa; text-transform: uppercase; margin-top: 2px; letter-spacing: 1px; }
 
+    /* AR Arrow (Center Screen) */
     #arrow-container {
-        flex-grow: 1; display: flex;
-        align-items: center; justify-content: center;
+        position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
     }
     #arrow-img {
-        width: 160px; height: 160px;
+        width: 180px; height: 180px;
         background-image: url("https://cdn-icons-png.flaticon.com/512/724/724927.png");
         background-size: contain; background-repeat: no-repeat;
-        filter: drop-shadow(0 0 20px #00e5ff); 
-        transition: transform 0.5s linear; /* Slower transition for GPS updates */
+        filter: drop-shadow(0 0 25px #00e5ff); /* Cyan Glow */
+        transition: transform 0.15s cubic-bezier(0.1, 0.5, 0.5, 1);
     }
 
+    /* Mini Map (Bottom Right) */
     #mini-map-container {
         position: absolute; bottom: 30px; right: 20px;
-        width: 180px; height: 180px;
-        border-radius: 25px; overflow: hidden;
-        border: 4px solid rgba(255,255,255,0.8);
-        background: #222;
+        width: 180px; height: 180px; border-radius: 25px;
+        border: 4px solid white; overflow: hidden; background: #222; pointer-events: auto;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.7);
     }
     #map { width: 100%; height: 100%; }
 
+    /* Start Button */
     #start-btn {
-        position: fixed; top: 50%; left: 50%;
-        transform: translate(-50%, -50%);
-        padding: 18px 45px; font-size: 18px; font-weight: bold;
-        background: #007cbf; color: white; border: none; border-radius: 50px;
-        cursor: pointer; z-index: 1000; pointer-events: auto;
+        position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        padding: 18px 50px; font-size: 18px; font-weight: bold;
+        background: linear-gradient(135deg, #007cbf, #00bfa5);
+        color: white; border: none; border-radius: 50px;
+        cursor: pointer; pointer-events: auto; z-index: 1000;
+        box-shadow: 0 10px 40px rgba(0, 124, 191, 0.6);
     }
 </style>
 </head>
@@ -76,13 +83,16 @@
 
     <div id="ui-layer">
         <div id="debug-panel">
-            <div>GPS Acc: <span id="dbg-acc">--</span> m</div>
-            <div>Course: <span id="dbg-course">--</span>°</div>
+            <div>GPS Acc: <span id="dbg-acc">--</span>m</div>
+            <div>Node: <span id="dbg-node">0</span></div>
+            <div>DistToNode: <span id="dbg-dist">--</span>m</div>
         </div>
 
         <div class="info-badge">
-            <div id="dist-text">-- m</div>
-            <div id="status-text">Ready</div>
+            <div class="badge-inner">
+                <div id="dist-text">-- m</div>
+                <div id="status-text">Initialize</div>
+            </div>
         </div>
 
         <div id="arrow-container">
@@ -94,40 +104,65 @@
         </div>
     </div>
 
-    <button id="start-btn" onclick="startSystem()">START</button>
+    <button id="start-btn" onclick="startSystem()">START AR NAVIGATION</button>
 
     <script src="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.js"></script>
 
 <script>
-    // 🔴 1. CONFIG
+    /* ================= 1. CONFIGURATION ================= */
+    
+    // 🔴 PASTE YOUR TOKEN HERE
     const MAPBOX_TOKEN = 'pk.eyJ1IjoiaGVtYW50aDg1MDMiLCJhIjoiY21rNzV5c2w2MHlqeTNncjI5bjkyeWJwaiJ9.NnunzAB_24Ntn83H5hRcyQ'; 
-    const DESTINATION = { lat: 12.9692, lng: 79.1559 }; // VIT Main Gate
-    const NODE_SWITCH_DIST = 15; 
+    
+    // 🔴 SET DESTINATION (Lat, Lng)
+    // Example: VIT Vellore Main Gate
+    const DESTINATION = { lat: 12.9692, lng: 79.1559 }; 
 
-    // STATE
+    // 🔴 TUNING PARAMETERS
+    const NODE_SWITCH_DIST = 30; // 30 Meters (Large bubble to prevent getting stuck)
+    
+    /* ================= 2. STATE VARIABLES ================= */
     let map;
     let routeCoords = []; 
     let nextNodeIndex = 0;
     let isFetchingRoute = false;
-    let currentGPSCourse = 0; // Stores the direction you are MOVING
+    
+    // Compass
+    let currentHeading = 0;
+    let smoothedHeading = 0;
 
-    // STARTUP
+    /* ================= 3. STARTUP ================= */
     async function startSystem() {
-        if(MAPBOX_TOKEN.includes('YOUR_MAPBOX')) return alert("Missing Token");
+        if(MAPBOX_TOKEN.includes('YOUR_MAPBOX')) {
+            alert("⚠️ Error: Please paste your Mapbox Token in the code!");
+            return;
+        }
+
         document.getElementById("start-btn").style.display = "none";
-        document.getElementById("status-text").innerText = "Waiting for movement...";
+        document.getElementById("status-text").innerText = "Aligning Sensors...";
 
+        // A. Camera
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: "environment" } 
+            });
             document.getElementById("camera-feed").srcObject = stream;
-        } catch(e) { console.error(e); }
+        } catch(e) { console.error("Camera Error:", e); }
 
+        // B. Map
         initMapbox();
 
+        // C. Compass
+        setupCompass();
+
+        // D. GPS
         if(navigator.geolocation) {
-            navigator.geolocation.watchPosition(handleLocation, console.warn, {
-                enableHighAccuracy: true, maximumAge: 0, timeout: 5000
-            });
+            navigator.geolocation.watchPosition(handleLocation, 
+                err => console.warn("GPS Error:", err), 
+                { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
+            );
+        } else {
+            alert("GPS Not Supported");
         }
     }
 
@@ -136,89 +171,137 @@
         map = new mapboxgl.Map({
             container: 'map',
             style: 'mapbox://styles/mapbox/dark-v11',
-            center: [DESTINATION.lng, DESTINATION.lat], zoom: 17, attributionControl: false
+            center: [DESTINATION.lng, DESTINATION.lat], 
+            zoom: 17, attributionControl: false
         });
     }
 
-    // MAIN LOOP
+    /* ================= 4. LOGIC LOOP ================= */
     function handleLocation(pos) {
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
-        
-        // CRITICAL CHANGE: We use GPS 'heading' (Course) instead of Compass
-        // This value is NaN if you are standing still!
-        if(pos.coords.heading) {
-            currentGPSCourse = pos.coords.heading;
-            document.getElementById("dbg-course").innerText = Math.round(currentGPSCourse);
-        }
+        const acc = pos.coords.accuracy;
 
-        document.getElementById("dbg-acc").innerText = Math.round(pos.coords.accuracy);
+        document.getElementById("dbg-acc").innerText = Math.round(acc);
         if(map) map.setCenter([lng, lat]);
 
+        // 1. Fetch Route (ONCE ONLY)
         if(routeCoords.length === 0 && !isFetchingRoute) {
             getRoute(lat, lng);
-        } else if(routeCoords.length > 0) {
+        } 
+        
+        // 2. Update Arrow Logic
+        else if(routeCoords.length > 0) {
             updateGuidance(lat, lng);
         }
     }
 
     async function getRoute(lat, lng) {
         isFetchingRoute = true;
-        document.getElementById("status-text").innerText = "Loading Route...";
-        
+        document.getElementById("status-text").innerText = "Loading Path...";
+
+        // Mapbox API Call (Walking Profile)
         const url = `https://api.mapbox.com/directions/v5/mapbox/walking/${lng},${lat};${DESTINATION.lng},${DESTINATION.lat}?steps=true&geometries=geojson&access_token=${MAPBOX_TOKEN}`;
 
         try {
             const res = await fetch(url);
             const data = await res.json();
+            
             if(data.routes && data.routes.length > 0) {
-                routeCoords = data.routes[0].geometry.coordinates;
+                routeCoords = data.routes[0].geometry.coordinates; // [ [lng,lat], ... ]
                 nextNodeIndex = 0;
                 drawRoute(routeCoords);
-                document.getElementById("status-text").innerText = "Walk to calibrate arrow";
+                document.getElementById("status-text").innerText = "Follow Arrow";
+            } else {
+                document.getElementById("status-text").innerText = "No Route Found";
             }
-        } catch(e) { console.error(e); }
+        } catch(e) { 
+            console.error(e);
+            document.getElementById("status-text").innerText = "Net Error";
+        }
     }
 
     function updateGuidance(lat, lng) {
-        // 1. Get Target Node
+        // --- SMART SKIP + WIDE RADIUS ---
+        
+        // 1. Distance to current target node
         let targetLng = routeCoords[nextNodeIndex][0];
         let targetLat = routeCoords[nextNodeIndex][1];
         let distToNode = getDistance(lat, lng, targetLat, targetLng);
 
-        // 2. Smart Skip Logic (Avoid getting stuck)
+        // Debug Output
+        document.getElementById("dbg-node").innerText = nextNodeIndex;
+        document.getElementById("dbg-dist").innerText = Math.round(distToNode);
+
+        // 2. LOOK AHEAD: Are we closer to the NEXT node?
         if (nextNodeIndex < routeCoords.length - 1) {
             let nextLng = routeCoords[nextNodeIndex + 1][0];
             let nextLat = routeCoords[nextNodeIndex + 1][1];
             let distToNext = getDistance(lat, lng, nextLat, nextLng);
-            
+
+            // If closer to next node, skip the current one
             if (distToNext < distToNode) {
                 nextNodeIndex++;
-                targetLng = nextLng;
                 targetLat = nextLat;
+                targetLng = nextLng;
+                distToNode = distToNext; 
             }
         }
 
-        // 3. Normal Switch
+        // 3. RADIUS CHECK (30 Meters)
         if (distToNode < NODE_SWITCH_DIST && nextNodeIndex < routeCoords.length - 1) {
             nextNodeIndex++;
         }
 
         // 4. Update UI
         const totalDist = getDistance(lat, lng, DESTINATION.lat, DESTINATION.lng);
-        document.getElementById("dist-text").innerText = Math.round(totalDist) + "m";
+        document.getElementById("dist-text").innerText = Math.round(totalDist) + " m";
 
-        // 5. UPDATE ARROW (GPS ONLY)
-        const bearingToTarget = getBearing(lat, lng, targetLat, targetLng);
-        
-        // Rotation = Target Bearing - Your Movement Direction
-        let rotation = bearingToTarget - currentGPSCourse;
-        
-        // Normalize rotation
-        while(rotation < -180) rotation += 360;
-        while(rotation > 180) rotation -= 360;
+        // 5. Update Arrow Bearing
+        const bearing = getBearing(lat, lng, targetLat, targetLng);
+        updateArrow(bearing);
+    }
 
-        document.getElementById("arrow-img").style.transform = `rotate(${rotation}deg)`;
+    /* ================= 5. SENSORS & MATH ================= */
+    function setupCompass() {
+        if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === "function") {
+            DeviceOrientationEvent.requestPermission().then(r => {
+                if(r==="granted") window.addEventListener("deviceorientation", handleOrientation);
+            });
+        } else {
+            if ('ondeviceorientationabsolute' in window) window.addEventListener("deviceorientationabsolute", handleOrientation);
+            else window.addEventListener("deviceorientation", handleOrientation);
+        }
+    }
+
+    function handleOrientation(e) {
+        let heading = e.webkitCompassHeading || (e.alpha ? 360 - e.alpha : 0);
+        
+        // Smooth Filter
+        let diff = heading - smoothedHeading;
+        while(diff < -180) diff += 360;
+        while(diff > 180) diff -= 360;
+        smoothedHeading += diff * 0.1;
+        currentHeading = smoothedHeading;
+
+        // Visual Update
+        if(routeCoords.length > 0) {
+            const arrow = document.getElementById("arrow-img");
+            if(arrow.dataset.targetBearing) {
+                 let rot = parseFloat(arrow.dataset.targetBearing) - currentHeading;
+                 while(rot < -180) rot += 360; while(rot > 180) rot -= 360;
+                 arrow.style.transform = `rotate(${rot}deg)`;
+            }
+        }
+    }
+
+    function updateArrow(bearing) {
+        const arrow = document.getElementById("arrow-img");
+        arrow.dataset.targetBearing = bearing; // Save for compass loop
+        
+        let rot = bearing - currentHeading;
+        while(rot < -180) rot += 360; while(rot > 180) rot -= 360;
+        arrow.style.transform = `rotate(${rot}deg)`;
     }
 
     function drawRoute(coords) {
@@ -231,20 +314,22 @@
         if(map.loaded()) draw(); else map.on('load', draw);
     }
 
-    // MATH
     function getDistance(lat1, lon1, lat2, lon2) {
         const R = 6371e3;
-        const φ1 = lat1 * Math.PI/180, φ2 = lat2 * Math.PI/180;
-        const Δφ = (lat2-lat1) * Math.PI/180, Δλ = (lon2-lon1) * Math.PI/180;
-        const a = Math.sin(Δφ/2)**2 + Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)**2;
+        const p1 = lat1 * Math.PI/180;
+        const p2 = lat2 * Math.PI/180;
+        const dLat = (lat2-lat1) * Math.PI/180;
+        const dLon = (lon2-lon1) * Math.PI/180;
+        const a = Math.sin(dLat/2)**2 + Math.cos(p1)*Math.cos(p2)*Math.sin(dLon/2)**2;
         return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     }
 
     function getBearing(lat1, lon1, lat2, lon2) {
-        const φ1 = lat1 * Math.PI/180, φ2 = lat2 * Math.PI/180;
-        const Δλ = (lon2-lon1) * Math.PI/180;
-        const y = Math.sin(Δλ) * Math.cos(φ2);
-        const x = Math.cos(φ1)*Math.sin(φ2) - Math.sin(φ1)*Math.cos(φ2)*Math.cos(Δλ);
+        const p1 = lat1 * Math.PI/180;
+        const p2 = lat2 * Math.PI/180;
+        const dLon = (lon2-lon1) * Math.PI/180;
+        const y = Math.sin(dLon) * Math.cos(p2);
+        const x = Math.cos(p1)*Math.sin(p2) - Math.sin(p1)*Math.cos(p2)*Math.cos(dLon);
         return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
     }
 </script>
